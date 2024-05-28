@@ -1,0 +1,80 @@
+[x, fs] = audioread("Enter a suitable cetacean audio signal");
+x = mean(x, 2); % Converts the mp3 file to a vector from a matrix
+p=x;
+L = length(x); % Gets the length of the signal
+
+% STFT Parameters
+window = hamming(512); % Window function
+noverlap = 256; % Number of samples of overlap between segments
+nfft = 1024; % FFT length
+fmin = 0; % Min and max frequency of common cetacean whistle
+fmax = 20000; 
+
+% Gets the STFT of the signal
+[S, f, t] = spectrogram(x, window, noverlap, nfft, fs);
+
+% Converts the STFT magnitude measurements to decibels
+Sdb = mag2db(abs(S));
+
+% Plots the spectrogram
+figure;
+imagesc(t, f, Sdb);
+axis xy;
+xlabel('Time (s)');
+ylabel('Frequency (Hz)');
+title('Spectrogram of the cetacean signal');
+colorbar; % Helps display the color range in the form of a bar next to the spectrogram 
+clim([-60 0]); % Adjusts the color range
+xlim([0 L/fs]); % Adjusts the time range
+ylim([fmin fmax]); % Adjusts the frequency range
+
+%Setting the threshold as 20 db as its a somewhat conservative value 
+%ideal to pick up cetacean sounds
+threshold = -20; 
+
+%Creating an Empty cell array to store the handles of the plot objects
+h = {};
+
+% Loops over the entire frequency range
+[k, l] = find(Sdb > threshold); % Find the indices of the matrix that exceeds the threshold
+f_detected = f(k); % Find the frequencies
+t_detected = t(l); % Find the time
+
+% Plots detected sounds on spectrogram
+hold on;
+h{1} = plot(t_detected, f_detected, '.', 'MarkerSize', 10, 'Color', "r");
+
+
+% Labels the detected sounds
+text(0.1, mean([fmin, fmax]), 'Cetacean species', 'Color', 'w', 'FontSize', 12);
+
+legend([h{:}], 'Cetacean species', 'Location', 'bestoutside');
+
+% Define frequency ranges for different cetaceans
+bottlenose_dolphin_range = [7000, 14000];
+spinner_dolphin_range = [10580, 13960];
+common_dolphin_range = [5000, 15000];
+gray_whistle_range = [100, 2000];
+
+%Synthetic Templates [ Can replace with your actual cetaceans recordings]
+template_bottlenose = sin(2*pi*bottlenose_dolphin_range(1)*(0:1000-1)/fs);
+template_spinner = sin(2*pi*spinner_dolphin_range(1)*(0:1000-1)/fs);
+template_common = sin(2*pi*common_dolphin_range(1)*(0:1000-1)/fs);
+template_gray_whistle = sin(2*pi*gray_whistle_range(1)*(0:1000-1)/fs);
+
+% Compute DTW distances
+distances = [dtw(p, template_bottlenose), dtw(p, template_spinner), ...
+    dtw(p, template_common), dtw(p, template_gray_whistle)];
+
+% Find the closest cetacean
+[~, closest_species] = min(distances);
+
+% Display the detected cetacean
+species_names = {'Bottlenose Dolphin', 'Spinner Dolphin', 'Common Dolphin', 'Gray Whistles'};
+fprintf('[STFT]Detected Cetacean: %s\n', species_names{closest_species});
+
+% Species classification based on the minimum DTW distance
+species = {'Bottlenose Dolphin', 'Spinner Dolphin', 'Common Dolphin', 'Gray Whistle'};
+classified_species = species{index};
+
+fprintf('[CTW]The detected cetacean call is classified as: %s\n', classified_species);
