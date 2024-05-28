@@ -1,0 +1,132 @@
+% Load the audio file
+[x, fs] = audioread("Enter the path of the audio signal");
+
+% Convert to single channel (mono) if the audio is stereo
+if size(x, 2) > 1
+    x = mean(x, 2);
+end
+
+% Define parameters
+frame_length = 0.02; % Frame length in seconds
+frame_shift = 0.01; % Frame shift in seconds
+n_mfcc = 12; % Number of MFCC coefficients to extract
+fmin = 0; % Minimum frequency
+fmax = fs / 2; % Maximum frequency
+n_filters = n_mfcc + 2; % Number of Mel filters 
+nfft = 256; % FFT length
+
+% Calculate number of frames and overlap
+frame_length_samples = round(frame_length * fs);
+frame_shift_samples = round(frame_shift * fs);
+n_frames = floor((length(x) - frame_length_samples) / frame_shift_samples);
+overlap = frame_length_samples - frame_shift_samples;
+
+% Pre-allocate memory for features
+mfccs = zeros(n_mfcc, n_frames);
+
+% Calculate Mel points
+mel_points = linspace(2595 * log10(1 + fmin / 700), 2595 * log10(1 + fmax / 700), n_filters);
+hz_points = 700 * (10.^(mel_points / 2595) - 1);
+
+% Convert Hz to FFT bin numbers
+bin = floor((nfft + 1) * hz_points / fs);
+bin = max(bin, 1); % Prevents bin from having values less than 1
+bin = min(bin, nfft / 2); % Adjusts bin to be within the half of nfft
+
+% Create Mel filter bank
+filters = zeros(n_filters - 2, nfft / 2);
+for i = 2:(n_filters - 1)
+    %Creates Triangular Filters
+    filters(i - 1, bin(i - 1):bin(i)) = linspace(0, 1, bin(i) - bin(i - 1) + 1);
+    filters(i - 1, bin(i):bin(i + 1)) = linspace(1, 0, bin(i + 1) - bin(i) + 1);
+end
+
+% Loop through frames
+for i = 1:n_frames
+    % Extract frame
+    start_index = (i - 1) * frame_shift_samples + 1;
+    end_index = start_index + frame_length_samples - 1;
+    frame = x(start_index:end_index);
+    
+    % Apply Hamming window
+    window = hamming(length(frame));
+    framed_signal = frame .* window;
+    
+    % Perform Fast Fourier Transform (FFT)
+    fft_result = abs(fft(framed_signal, nfft));
+    fft_result = fft_result(1:floor(length(fft_result)/2) + 1); % Take only positive frequencies
+    
+    % Apply Mel filter bank
+    mel_filtered_spectrum = filters * fft_result(1:size(filters, 2));
+    
+    % Apply logarithm
+    log_spectrum = log(mel_filtered_spectrum + eps); % Add small epsilon to avoid log(0)
+    
+    % Discrete Cosine Transform (DCT)
+    dct_coefficients = dct(log_spectrum);
+    
+    % Keep only the first n_mfcc coefficients
+    mfccs(:, i) = dct_coefficients(1:n_mfcc);
+end
+
+% Normalizing the MFCCs for the first 12 coefficients
+normalized_mfccs = mfccs(1:12, :);
+min_vals = min(normalized_mfccs, [], 2);
+max_vals = max(normalized_mfccs, [], 2);
+
+for i = 1:12
+    % Avoid division by zero in case max equals min
+    if max_vals(i) ~= min_vals(i)
+        normalized_mfccs(i, :) = (normalized_mfccs(i, :) - min_vals(i)) / (max_vals(i) - min_vals(i));
+    else
+        normalized_mfccs(i, :) = zeros(1, size(normalized_mfccs, 2));
+    end
+end
+
+% Visualization of normalized MFCCs
+figure;
+imagesc(normalized_mfccs);
+title('Normalized Mel-Frequency Cepstral Coefficients (MFCCs)');
+xlabel('Frame');
+ylabel('MFCC coefficient');
+colorbar;
+
+% Define frequency ranges for different cetaceans
+bottlenose_dolphin_range = [7000, 14000];
+spinner_dolphin_range = [10580, 13960];
+common_dolphin_range = [5000, 15000];
+gray_whistle_range = [100, 2000];
+
+% Synthetic Templates
+template_bottlenose = sin(2*pi*bottlenose_dolphin_range(1)*(0:1000-1)/fs);
+template_spinner = sin(2*pi*spinner_dolphin_range(1)*(0:1000-1)/fs);
+template_common = sin(2*pi*common_dolphin_range(1)*(0:1000-1)/fs);
+template_gray_whistle = sin(2*pi*gray_whistle_range(1)*(0:1000-1)/fs);
+
+% Normalize the synthetic templates
+template_bottlenose = (template_bottlenose - min(template_bottlenose)) / (max(template_bottlenose) - min(template_bottlenose));
+template_spinner = (template_spinner - min(template_spinner)) / (max(template_spinner) - min(template_spinner));
+template_common = (template_common - min(template_common)) / (max(template_common) - min(template_common));
+template_gray_whistle = (template_gray_whistle - min(template_gray_whistle)) / (max(template_gray_whistle) - min(template_gray_whistle));
+
+% Repeat the templates to match the number of MFCC coefficients
+template_bottlenose = repmat(template_bottlenose, size(normalized_mfccs, 1), 1);
+template_spinner = repmat(template_spinner, size(normalized_mfccs, 1), 1);
+template_common = repmat(template_common, size(normalized_mfccs, 1), 1);
+template_gray_whistle = repmat(template_gray_whistle, size(normalized_mfccs, 1), 1);
+
+% Calculate DTW distances
+[dist_bottlenose, ~] = dtw(normalized_mfccs, template_bottlenose);
+[dist_spinner, ~] = dtw(normalized_mfccs, template_spinner);
+[dist_common, ~] = dtw(normalized_mfccs, template_common);
+[dist_gray_whistle, ~] = dtw(normalized_mfccs, template_gray_whistle);
+
+% Find the smallest distance
+[min_dist, idx] = min([dist_bottlenose, dist_spinner, dist_common, dist_gray_whistle]);
+
+% Classify based on the smallest distance
+species = {'Bottlenose Dolphin', 'Spinner Dolphin', 'Common Dolphin', 'Gray Whale'};
+classified_species = species{idx};
+
+% Display the classified species
+fprintf('The classified species is: %s\n', classified_species);
