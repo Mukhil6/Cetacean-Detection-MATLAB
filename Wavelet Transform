@@ -1,0 +1,84 @@
+
+[x, fs] = audioread("Enter the path of the audio recording");
+
+% Audio to Vector form
+if size(x, 2) > 1
+    x = mean(x, 2);
+end
+
+% Length of the signal
+L = length(x);
+
+% Wavelet function - Morlet wavelet (best choice for freq time localization)
+wavelet_name = 'amor';  
+
+% Define frequency range of interest
+fmin = 0;
+fmax = 20000;
+
+% CWT with specified frequency limits
+[CWT, f] = cwt(x, 'amor', 'FrequencyLimits', [fmin fmax]);
+
+% Magnitude to Decibels
+CWT_db = mag2db(abs(CWT));
+
+% Threshold in Decibels
+threshold = -20; % dB
+
+% Find indices where the magnitude exceeds the threshold
+exceeds_threshold = (CWT_db > threshold);
+
+% Get the indices that exceed the threshold within the valid frequency range
+valid_f_indices = (f >= fmin) & (f <= fmax);
+valid_exceeds_threshold = exceeds_threshold & valid_f_indices;
+
+% Convert logical indices to linear indices
+[k, l] = find(valid_exceeds_threshold);
+
+% Convert indices to time and frequency
+t_detected = (l-1) / fs;
+f_detected = f(k);
+
+%Scalogram
+figure;
+imagesc((0:L-1)/fs, f, CWT_db);
+axis xy;
+xlabel('Time (s)');
+ylabel('Frequency (Hz)');
+title('Scalogram of the Cetacean Signal (CWT)');
+colorbar;
+clim([-60 0]); 
+
+hold on;
+%plot(t_detected, f_detected, '.', 'MarkerSize', 5, 'Color', 'g');
+%hold off;
+
+% Define frequency ranges for different cetaceans
+bottlenose_dolphin_range = [7000, 14000];
+spinner_dolphin_range = [10580, 13960];
+common_dolphin_range = [5000, 15000];
+gray_whistle_range = [100, 2000];
+
+% Synthetic Templates
+template_bottlenose = sin(2*pi*bottlenose_dolphin_range(1)*(0:1000-1)/fs);
+template_spinner = sin(2*pi*spinner_dolphin_range(1)*(0:1000-1)/fs);
+template_common = sin(2*pi*common_dolphin_range(1)*(0:1000-1)/fs);
+template_gray_whistle = sin(2*pi*gray_whistle_range(1)*(0:1000-1)/fs);
+
+
+detected_cetacean_call = x;
+
+% Calculate DTW distances
+distance_bottlenose = dtw(detected_cetacean_call, template_bottlenose);
+distance_spinner = dtw(detected_cetacean_call, template_spinner);
+distance_common = dtw(detected_cetacean_call, template_common);
+distance_gray_whistle = dtw(detected_cetacean_call, template_gray_whistle);
+
+% Find the minimum distance and classify
+[min_distance, index] = min([distance_bottlenose, distance_spinner, distance_common, distance_gray_whistle]);
+
+% Species classification based on the minimum DTW distance
+species = {'Bottlenose Dolphin', 'Spinner Dolphin', 'Common Dolphin', 'Gray Whistle'};
+classified_species = species{index};
+
+fprintf('[CTW]The detected cetacean call is classified as: %s\n', classified_species);
